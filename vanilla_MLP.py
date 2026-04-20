@@ -5,6 +5,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
+import matplotlib.pyplot as plt
 
 
 class SeedManager:
@@ -34,6 +35,13 @@ class CIFAR10DataModule:
             transform=self.transform
         )
 
+        test_dataset = torchvision.datasets.CIFAR10(
+            root='./data',
+            train=False,
+            download=True,
+            transform=self.transform
+        )
+
         train_size = int((1 - self.val_ratio) * len(full_train_dataset))
         val_size = len(full_train_dataset) - train_size
 
@@ -56,7 +64,13 @@ class CIFAR10DataModule:
             shuffle=False
         )
 
-        return train_loader, val_loader
+        test_loader = DataLoader(
+            test_dataset,
+            batch_size=self.batch_size,
+            shuffle=False
+        )
+
+        return train_loader, val_loader, test_loader
 
 
 class VanillaMLP(nn.Module):
@@ -152,8 +166,33 @@ class Trainer:
 
         return avg_loss, avg_acc
 
+    @torch.no_grad()
+    def test(self, test_loader):
+        self.model.eval()
+
+        total_loss = 0.0
+        correct = 0
+        total = 0
+
+        for images, labels in test_loader:
+            images = images.to(self.device)
+            labels = labels.to(self.device)
+
+            outputs = self.model(images)
+            loss = self.criterion(outputs, labels)
+
+            total_loss += loss.item() * images.size(0)
+            predictions = torch.argmax(outputs, dim=1)
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+
+        avg_loss = total_loss / total
+        avg_acc = correct / total
+
+        return avg_loss, avg_acc
+
     def fit(self):
-        best_val_acc = 0.0
+        best_val_acc = -1.0
         best_state_dict = None
 
         for epoch in range(1, self.epochs + 1):
@@ -165,24 +204,47 @@ class Trainer:
             self.history["val_loss"].append(val_loss)
             self.history["val_acc"].append(val_acc)
 
-
-            if val_acc > best_val_acc:
+            if best_state_dict is None or val_acc > best_val_acc:
                 best_val_acc = val_acc
-                best_state_dict = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
+                best_state_dict = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
 
-                print(f" New BEST model at epoch {epoch} | val_acc = {val_acc:.4f}")
+                print(f"New BEST model at epoch {epoch} | val_acc = {val_acc * 100:.2f}%")
 
             print(
                 f"Epoch {epoch}/{self.epochs} | "
-                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f}"
+                f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc * 100:.2f}% | "
+                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc * 100:.2f}%"
             )
 
         self.model.load_state_dict(best_state_dict)
 
-        print(f"\nBest Validation Accuracy: {best_val_acc:.4f}")
+        print(f"\nBest Validation Accuracy: {best_val_acc * 100:.2f}%")
 
         return self.history
+
+
+def plot_history(history):
+    epochs = range(1, len(history["train_loss"]) + 1)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["val_loss"], label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Training and Validation Loss vs Epoch")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(epochs, [acc * 100 for acc in history["train_acc"]], label="Train Accuracy")
+    plt.plot(epochs, [acc * 100 for acc in history["val_acc"]], label="Validation Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy (%)")
+    plt.title("Training and Validation Accuracy vs Epoch")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
 
 
 class Experiment:
@@ -198,7 +260,7 @@ class Experiment:
             val_ratio=self.config["val_ratio"]
         )
 
-        train_loader, val_loader = data_module.get_loaders()
+        train_loader, val_loader, test_loader = data_module.get_loaders()
 
         model = VanillaMLP(
             input_dim=3 * 32 * 32,
@@ -215,13 +277,22 @@ class Experiment:
         )
 
         history = trainer.fit()
-        return history
+
+        plot_history(history)
+
+        test_loss, test_acc = trainer.test(test_loader)
+
+        print("\nTest Results:")
+        print(f"Test Loss: {test_loss:.4f}")
+        print(f"Test Accuracy: {test_acc * 100:.2f}%")
+
+        return history, test_loss, test_acc
 
 
 if __name__ == "__main__":
     config = {
         "seed": 42,
-        "batch_size": 64,
+        "batch_size": 24,
         "learning_rate": 0.01,
         "hidden_layers": [512, 512, 256, 128],
         "epochs": 20,
@@ -229,4 +300,4 @@ if __name__ == "__main__":
     }
 
     experiment = Experiment(config)
-    history = experiment.run()
+    history, test_loss, test_acc = experiment.run()
