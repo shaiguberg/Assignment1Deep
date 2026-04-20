@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader, random_split
 from collections import Counter
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
+from collections import defaultdict
 
 # Define a basic transformation: convert images to tensors
 transform = transforms.ToTensor()
@@ -62,8 +64,8 @@ for label, count in label_counts.items():
 
 
 
-import torch
-from collections import defaultdict
+
+
 
 # Get class names
 class_names = full_train_dataset.classes
