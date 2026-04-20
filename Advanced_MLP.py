@@ -5,6 +5,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
+import itertools
 
 
 class SeedManager:
@@ -239,49 +240,75 @@ class Experiment:
 
 
 if __name__ == "__main__":
+    # Base configuration
     base_config = {
         "seed": 42,
         "batch_size": 64,
         "learning_rate": 0.01,
         "hidden_layers": [512, 512, 256, 128],
-        "epochs": 20,
-        "val_ratio": 0.2,
-        "dropout_rate": 0,  # --- currently no dropout ---
-        "use_batch_norm": False,
-        "use_input_norm": False,
-        "weight_decay": 0,
-        "Adam": False,
-        "AdamW": False
+        "epochs": 10,  # Recommended: lower epochs for grid search
+        "val_ratio": 0.2
     }
 
-    experiments = [
-        {"name": "Baseline (Vanilla)", "use_input_norm": False},
-        {"name": "Step 1: Input Norm", "use_input_norm": True},
-        {"name": "Step 2: BatchNorm", "use_batch_norm": True},
-        {"name": "Step 3: Dropout 0.2", "dropout_rate": 0.2},
-        {"name": "Step 4: L2 Reg", "weight_decay": 1e-4},
-        {"name": "Step 5: Adam", "Adam": True},
-        {"name": "Step 6: AdamW", "AdamW": True}
-    ]
+    # Define the variations you want to test
+    options = {
+        "use_input_norm": [True, False],
+        "use_batch_norm": [True, False],
+        "dropout_rate": [0, 0.2, 0.5],
+        "weight_decay": [0, 1e-4, 1e-3],
+        "optimizer": ["SGD", "Adam", "AdamW"]  # Testing two main types
+    }
+
+    # Generate combinations
+    keys = list(options.keys())
+    combinations = list(itertools.product(*options.values()))
 
     results_summary = []
 
-    # config update loop
-    for exp_setup in experiments:
-        current_config = base_config.copy()
-        current_config.update(exp_setup)
+    # --- experiments loop ---
+    for idx, combo in enumerate(combinations):
+        current_setup = dict(zip(keys, combo))
+        exp_config = base_config.copy()
+        exp_config.update(current_setup)
 
-        print(f"\n🚀 Running Experiment: {current_config['name']}")
+        opt_name = exp_config.pop("optimizer")
+        exp_config["AdamW"] = (opt_name == "AdamW")
+        exp_config["Adam"] = (opt_name == "Adam")
 
-        experiment = Experiment(current_config)
-        history = experiment.run()
+        exp_name = (f"Opt: {opt_name:5} | "
+                    f"BN: {str(current_setup['use_batch_norm']):5} | "
+                    f"Drop: {current_setup['dropout_rate']:3} | "
+                    f"WD: {current_setup['weight_decay']:6} | "
+                    f"INorm: {str(current_setup['use_input_norm']):5}")
 
-        best_acc = max(history["val_acc"])
-        results_summary.append((current_config['name'], best_acc))
+        print(f"\n🚀 [Exp {idx + 1}/{len(combinations)}] Running: {exp_name}")
 
-    # result printing
-    print("\n" + "=" * 30)
-    print("FINAL EXPERIMENT SUMMARY")
-    print("=" * 30)
+        try:
+            experiment = Experiment(exp_config)
+            history = experiment.run()
+            best_acc = max(history["val_acc"])
+
+            print(f"✅ Finished {exp_name} -> Best Val Acc: {best_acc:.4f}")
+
+            results_summary.append((exp_name, best_acc))
+        except Exception as e:
+            print(f"❌ Experiment failed: {exp_name}. Error: {e}")
+
+    # --- all results ---
+    print("\n" + "=" * 80)
+    print(f"{'FULL EXPERIMENT LOG':^80}")
+    print("=" * 80)
+    print(f"{'Experiment Configuration':<65} | {'Best Val Acc':<12}")
+    print("-" * 80)
     for name, acc in results_summary:
-        print(f"{name:25} | Best Val Acc: {acc:.4f}")
+        print(f"{name:<65} | {acc:<12.4f}")
+
+    # --- printing top 10 results ---
+    results_summary.sort(key=lambda x: x[1], reverse=True)
+
+    print("\n" + "=" * 80)
+    print(f"{'🏆 TOP 10 RESULTS 🏆':^80}")
+    print("=" * 80)
+    for i, (name, acc) in enumerate(results_summary[:10], 1):
+        print(f"{i:2}. {name:<65} | {acc:.4f}")
+    print("=" * 80)
