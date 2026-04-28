@@ -42,27 +42,24 @@ plt.title("Model Confidence vs. Human Reaction Time")
 plt.grid(True)
 
 
-# --- הוספה לקוד הקיים שלך לפני plt.show() ---
 
-# 1. הגדרת ה"סלים" (Bins) על ציר ה-X
-# מחלקים את הטווח [0, 1] ל-20 חלקים שווים
 n_bins = 20
 bins = np.linspace(0, 1, n_bins + 1)
-bin_centers = (bins[:-1] + bins[1:]) / 2 # מרכזי הסלים עבור הציור
+bin_centers = (bins[:-1] + bins[1:]) / 2
 
-# 2. חישוב ממוצע Y לכל סל
+
 bin_means = []
 for i in range(n_bins):
-    # מוצאים את כל האינדקסים שנופלים בטווח של הסל הנוכחי
+
     mask = (model_probs >= bins[i]) & (model_probs < bins[i+1])
     if mask.any():
         bin_means.append(reaction_times[mask].mean())
     else:
-        bin_means.append(np.nan) # אם אין נתונים בסל נשים NaN
+        bin_means.append(np.nan)
 
-# 3. הוספת הגרף הממוצע על גבי ה-Scatter
+
 plt.plot(bin_centers, bin_means, color='red', linewidth=3, label='Average Trend')
-plt.legend() # הוספת מקרא כדי שנזהה את השורה
-# -------------------------------------------
+plt.legend()
+
 
 plt.show()
