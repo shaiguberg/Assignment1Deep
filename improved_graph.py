@@ -5,6 +5,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
+import matplotlib.pyplot as plt
 
 
 # =========================
@@ -24,17 +25,27 @@ def set_seed(seed):
 # Data
 # =========================
 def get_cifar10_loaders(config):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=(0.4914, 0.4822, 0.4465),
-            std=(0.2470, 0.2435, 0.2616)
-        )
-    ])
+    if config["use_input_norm"]:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=(0.4914, 0.4822, 0.4465),
+                std=(0.2470, 0.2435, 0.2616)
+            )
+        ])
+    else:
+        transform = transforms.ToTensor()
 
     full_train_dataset = torchvision.datasets.CIFAR10(
         root="./data",
         train=True,
+        download=True,
+        transform=transform
+    )
+
+    test_dataset = torchvision.datasets.CIFAR10(
+        root="./data",
+        train=False,
         download=True,
         transform=transform
     )
@@ -62,7 +73,13 @@ def get_cifar10_loaders(config):
         shuffle=False
     )
 
-    return train_loader, val_loader
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False
+    )
+
+    return train_loader, val_loader, test_loader
 
 
 # =========================
@@ -98,7 +115,7 @@ class AdvancedMLP(nn.Module):
 
 
 # =========================
-# Train one epoch
+# Train / Evaluate
 # =========================
 def train_one_epoch(model, train_loader, criterion, optimizer, device):
     model.train()
@@ -131,18 +148,15 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
     return avg_loss, avg_acc
 
 
-# =========================
-# Validation
-# =========================
 @torch.no_grad()
-def evaluate(model, val_loader, criterion, device):
+def evaluate(model, data_loader, criterion, device):
     model.eval()
 
     total_loss = 0.0
     correct = 0
     total = 0
 
-    for images, labels in val_loader:
+    for images, labels in data_loader:
         images = images.to(device)
         labels = labels.to(device)
 
@@ -162,6 +176,33 @@ def evaluate(model, val_loader, criterion, device):
 
 
 # =========================
+# Plots
+# =========================
+def plot_history(history):
+    epochs = range(1, len(history["train_acc"]) + 1)
+
+    plt.figure()
+    plt.plot(epochs, history["train_acc"], label="Train Accuracy")
+    plt.plot(epochs, history["val_acc"], label="Validation Accuracy")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title("Train vs Validation Accuracy")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.figure()
+    plt.plot(epochs, history["train_loss"], label="Train Loss")
+    plt.plot(epochs, history["val_loss"], label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Train vs Validation Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+
+# =========================
 # Main
 # =========================
 def main():
@@ -178,6 +219,8 @@ def main():
         "use_input_norm": True,
         "weight_decay": 0.0,
 
+        "Adam": False,
+        "AdamW": False,
         "name": "Best Single Run: InputNorm=True, BatchNorm=True, Dropout=0.1, WeightDecay=0.0, Optimizer=SGD"
     }
 
@@ -186,7 +229,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_loader, val_loader = get_cifar10_loaders(config)
+    train_loader, val_loader, test_loader = get_cifar10_loaders(config)
 
     model = AdvancedMLP(
         input_dim=3 * 32 * 32,
@@ -202,9 +245,16 @@ def main():
         weight_decay=config["weight_decay"]
     )
 
+    history = {
+        "train_loss": [],
+        "train_acc": [],
+        "val_loss": [],
+        "val_acc": []
+    }
+
     best_val_acc = -1.0
-    best_epoch = 0
     best_state_dict = None
+    best_epoch = 0
 
     for epoch in range(1, config["epochs"] + 1):
         train_loss, train_acc = train_one_epoch(
@@ -215,17 +265,20 @@ def main():
             model, val_loader, criterion, device
         )
 
+        history["train_loss"].append(train_loss)
+        history["train_acc"].append(train_acc)
+        history["val_loss"].append(val_loss)
+        history["val_acc"].append(val_acc)
+
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = epoch
-
             best_state_dict = {
                 k: v.detach().cpu().clone()
                 for k, v in model.state_dict().items()
             }
 
             torch.save(best_state_dict, "best_cifar10_model.pth")
-            print(f"Saved new best model at epoch {epoch}")
 
         print(
             f"Epoch {epoch}/{config['epochs']} | "
@@ -235,12 +288,20 @@ def main():
 
     model.load_state_dict(best_state_dict)
 
+    test_loss, test_acc = evaluate(
+        model, test_loader, criterion, device
+    )
+
     print("\n==============================")
-    print("Training Finished")
+    print("Final Result")
     print("==============================")
     print(f"Best Epoch: {best_epoch}")
     print(f"Best Validation Accuracy: {best_val_acc * 100:.2f}%")
-    print("Best model weights saved to: best_cifar10_model.pth")
+    print(f"Test Loss: {test_loss:.4f}")
+    print(f"Test Accuracy: {test_acc * 100:.2f}%")
+    print("Best model saved to: best_cifar10_model.pth")
+
+    plot_history(history)
 
 
 if __name__ == "__main__":
