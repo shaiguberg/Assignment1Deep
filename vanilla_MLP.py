@@ -294,7 +294,7 @@ if __name__ == "__main__":
         "seed": 42,
         "batch_size": 24,
         "learning_rate": 0.01,
-        "hidden_layers": [512, 512, 256, 128],
+        "hidden_layers": [512,256, 256, 128],
         "epochs": 20,
         "val_ratio": 0.2
     }
