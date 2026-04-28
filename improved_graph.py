@@ -43,6 +43,13 @@ def get_cifar10_loaders(config):
         transform=transform
     )
 
+    test_dataset = torchvision.datasets.CIFAR10(
+        root="./data",
+        train=False,
+        download=True,
+        transform=transform
+    )
+
     train_size = int((1 - config["val_ratio"]) * len(full_train_dataset))
     val_size = len(full_train_dataset) - train_size
 
@@ -66,7 +73,13 @@ def get_cifar10_loaders(config):
         shuffle=False
     )
 
-    return train_loader, val_loader
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=config["batch_size"],
+        shuffle=False
+    )
+
+    return train_loader, val_loader, test_loader
 
 
 # =========================
@@ -136,14 +149,14 @@ def train_one_epoch(model, train_loader, criterion, optimizer, device):
 
 
 @torch.no_grad()
-def evaluate(model, val_loader, criterion, device):
+def evaluate(model, data_loader, criterion, device):
     model.eval()
 
     total_loss = 0.0
     correct = 0
     total = 0
 
-    for images, labels in val_loader:
+    for images, labels in data_loader:
         images = images.to(device)
         labels = labels.to(device)
 
@@ -216,7 +229,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    train_loader, val_loader = get_cifar10_loaders(config)
+    train_loader, val_loader, test_loader = get_cifar10_loaders(config)
 
     model = AdvancedMLP(
         input_dim=3 * 32 * 32,
@@ -265,6 +278,8 @@ def main():
                 for k, v in model.state_dict().items()
             }
 
+            torch.save(best_state_dict, "best_cifar10_model.pth")
+
         print(
             f"Epoch {epoch}/{config['epochs']} | "
             f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc * 100:.2f}% | "
@@ -273,11 +288,18 @@ def main():
 
     model.load_state_dict(best_state_dict)
 
+    test_loss, test_acc = evaluate(
+        model, test_loader, criterion, device
+    )
+
     print("\n==============================")
     print("Final Result")
     print("==============================")
     print(f"Best Epoch: {best_epoch}")
     print(f"Best Validation Accuracy: {best_val_acc * 100:.2f}%")
+    print(f"Test Loss: {test_loss:.4f}")
+    print(f"Test Accuracy: {test_acc * 100:.2f}%")
+    print("Best model saved to: best_cifar10_model.pth")
 
     plot_history(history)
 
